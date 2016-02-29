@@ -21,12 +21,17 @@ package org.wso2.am.integration.tests.resources;
 import org.json.JSONObject;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.DataProvider;
+import org.testng.annotations.Factory;
 import org.testng.annotations.Test;
 import org.wso2.am.integration.test.utils.base.APIMIntegrationBaseTest;
+import org.wso2.am.integration.test.utils.base.APIMIntegrationConstants;
 import org.wso2.am.integration.test.utils.bean.APILifeCycleState;
 import org.wso2.am.integration.test.utils.bean.APILifeCycleStateRequest;
 import org.wso2.am.integration.test.utils.bean.APIRequest;
 import org.wso2.am.integration.test.utils.clients.APIPublisherRestClient;
+import org.wso2.am.integration.test.utils.clients.APIStoreRestClient;
+import org.wso2.carbon.automation.engine.context.TestUserMode;
 import org.wso2.carbon.automation.test.utils.http.client.HttpResponse;
 
 import java.net.URL;
@@ -36,35 +41,53 @@ import static org.testng.Assert.assertEquals;
 public class APIResourceModificationTestCase extends APIMIntegrationBaseTest {
 
     private APIPublisherRestClient apiPublisher;
+    private APIStoreRestClient apiStoreRestClient;
+    private String APIName = "APIResourceTestAPI";
+    private String APIVersion = "1.0.0";
+    private String providerName = "";
+
+    @Factory(dataProvider = "userModeDataProvider")
+    public APIResourceModificationTestCase(TestUserMode userMode) {
+        this.userMode = userMode;
+    }
+
+    @DataProvider
+    public static Object[][] userModeDataProvider() {
+        return new Object[][]{
+                new Object[]{TestUserMode.SUPER_TENANT_ADMIN},
+                new Object[]{TestUserMode.TENANT_ADMIN},
+        };
+    }
 
     @BeforeClass(alwaysRun = true)
-    public void init() throws Exception {
-        super.init();
-        String publisherURLHttp = publisherUrls.getWebAppURLHttp();
+    public void setEnvironment() throws Exception {
+        super.init(userMode);
+        String publisherURLHttp = getPublisherURLHttp();
+        String storeURLHttp = getStoreURLHttp();
         apiPublisher = new APIPublisherRestClient(publisherURLHttp);
+        apiStoreRestClient = new APIStoreRestClient(storeURLHttp);
 
+        providerName = user.getUserName();
     }
 
     @Test(groups = {"wso2.am"}, description = "add scope to resource test case")
     public void testSetScopeToResourceTestCase() throws Exception {
 
-        String APIName = "APIResourceTestAPI";
         String APIContext = "testResAPI";
         String tags = "youtube, video, media";
         String url = "http://gdata.youtube.com/feeds/api/standardfeeds";
         String description = "This is test API create by API manager integration test";
-        String providerName = "admin";
-        String APIVersion = "1.0.0";
 
         //add all option methods
-        apiPublisher.login(publisherContext.getContextTenant().getContextUser().getUserName(),
-                publisherContext.getContextTenant().getContextUser().getPassword());
+        apiPublisher.login(user.getUserName(),
+                user.getPassword());
         APIRequest apiRequest = new APIRequest(APIName, APIContext, new URL(url));
         apiRequest.setTags(tags);
         apiRequest.setDescription(description);
         apiRequest.setVersion(APIVersion);
         apiRequest.setVisibility("restricted");
         apiRequest.setRoles("admin");
+        apiRequest.setProvider(providerName);
         apiPublisher.addAPI(apiRequest);
         apiPublisher.deleteAPI(APIName, APIVersion, providerName);
         //add assertion
@@ -74,26 +97,27 @@ public class APIResourceModificationTestCase extends APIMIntegrationBaseTest {
                 APILifeCycleState.PUBLISHED);
         apiPublisher.changeAPILifeCycleStatus(updateRequest);
 
-        //resource are modified by using swagger doc. create the swagger doc with modified
-        //information. Similar thing happens when using UI to modify the resources
 
-        String modifiedResource = "{\"apiVersion\":\"1.0.0\",\"swaggerVersion\":\"1.2\"," +
-                "\"authorizations\":{\"oauth2\":{\"scopes\":[{\"description\":\"\",\"name\":" +
-                "\"testscope\",\"roles\":\"internal/subscriber\",\"key\":\"scopeKey\"}]," +
-                "\"type\":\"oauth2\"}},\"apis\":[{\"index\":0,\"file\":{\"apiVersion\":\"1.0.0\"," +
-                "\"swaggerVersion\":\"1.2\",\"resourcePath\":\"/default\",\"apis\":[{\"index\":0," +
-                "\"path\":\"/*\",\"operations\":[{\"scope\":\"scopeKey\",\"auth_type\":\"None\"," +
-                "\"throttling_tier\":\"Unlimited\",\"method\":\"GET\",\"parameters\":[]}," +
-                "{\"scope\":\"scopeKey\",\"auth_type\":\"None\",\"throttling_tier\":\"Unlimited\"," +
-                "\"method\":\"POST\",\"parameters\":[]},{\"scope\":\"\",\"auth_type\":\"None\"," +
-                "\"throttling_tier\":\"Unlimited\",\"method\":\"PUT\",\"parameters\":[]}," +
-                "{\"auth_type\":\"None\",\"throttling_tier\":\"Unlimited\",\"method\":\"DELETE\"," +
-                "\"parameters\":[]},{\"auth_type\":\"None\",\"throttling_tier\":\"Unlimited\"," +
-                "\"method\":\"OPTIONS\",\"parameters\":[]}]}]},\"description\":\"\",\"path\":" +
-                "\"/default\"}],\"info\":{\"title\":\"" + APIName + "\",\"termsOfServiceUrl\":\"" +
-                "\",\"description\":\"\",\"license\":\"\",\"contact\":\"\",\"licenseUrl\":\"\"}}";
+        waitForAPIDeploymentSync(apiRequest.getProvider(), apiRequest.getName(), apiRequest.getVersion(),
+                                 APIMIntegrationConstants.IS_API_EXISTS);
+
+        // resource are modified by using swagger doc. create the swagger doc
+        // with modified
+        // information. Similar thing happens when using UI to modify the
+        // resources
+
+        String modifiedResource = "{\"paths\":{\"/*\":{\"put\":{\"responses\":{\"200\":{}}," +
+                "\"x-auth-type\":\"None\",\"x-throttling-tier\":\"Unlimited\"},\"post\":{\"responses\":{\"200\":{}}," +
+                "\"x-auth-type\":\"None\",\"x-throttling-tier\":\"Unlimited\",\"x-scope\":\"scopeKey\"},\"get\":{\"responses\":{\"200\":{}}," +
+                "\"x-auth-type\":\"None\",\"x-throttling-tier\":\"Unlimited\",\"x-scope\":\"scopeKey\"},\"delete\":{\"responses\":{\"200\":{}}," +
+                "\"x-auth-type\":\"None\",\"x-throttling-tier\":\"Unlimited\"},\"options\":{\"responses\":{\"200\":{}}," +
+                "\"x-auth-type\":\"None\",\"x-throttling-tier\":\"Unlimited\"}}}," +
+                "\"swagger\":\"2.0\",\"info\":{\"title\":\"APIResourceTestAPI\",\"version\":\"1.0.0\"}," +
+                "\"x-wso2-security\":{\"apim\":{\"x-wso2-scopes\":[{\"name\":\"testscope\",\"description\":\"\",\"key\":\"scopeKey\",\"roles\":\"internal/subscriber\"}]}}}";
 
         HttpResponse response = apiPublisher.updateResourceOfAPI(providerName, APIName, APIVersion, modifiedResource);
+
+        apiStoreRestClient.waitForSwaggerDocument(providerName, APIName, APIVersion, "Unlimited", executionMode);
 
         JSONObject jsonObject = new JSONObject(response.getData());
         boolean error = (Boolean) jsonObject.get("error");
@@ -102,6 +126,5 @@ public class APIResourceModificationTestCase extends APIMIntegrationBaseTest {
 
     @AfterClass(alwaysRun = true)
     public void destroy() throws Exception {
-        super.cleanup();
     }
 }

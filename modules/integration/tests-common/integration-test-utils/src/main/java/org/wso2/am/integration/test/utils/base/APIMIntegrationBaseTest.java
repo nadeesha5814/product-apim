@@ -18,27 +18,37 @@
 package org.wso2.am.integration.test.utils.base;
 
 import org.apache.axiom.om.OMElement;
+import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.testng.Assert;
+import org.wso2.am.integration.test.utils.APIManagerIntegrationTestException;
 import org.wso2.am.integration.test.utils.bean.APIMURLBean;
+import org.wso2.am.integration.test.utils.clients.APIPublisherRestClient;
+import org.wso2.am.integration.test.utils.clients.APIStoreRestClient;
 import org.wso2.am.integration.test.utils.generic.APIMTestCaseUtils;
-import org.wso2.am.integration.test.utils.generic.ServiceDeploymentUtil;
-import org.wso2.carbon.authenticator.stub.LoginAuthenticationExceptionException;
+import org.wso2.carbon.automation.engine.FrameworkConstants;
+import org.wso2.carbon.automation.engine.annotations.ExecutionEnvironment;
 import org.wso2.carbon.automation.engine.context.AutomationContext;
+import org.wso2.carbon.automation.engine.context.ContextXpathConstants;
 import org.wso2.carbon.automation.engine.context.TestUserMode;
+import org.wso2.carbon.automation.engine.context.beans.User;
 import org.wso2.carbon.automation.engine.frameworkutils.FrameworkPathUtil;
+import org.wso2.carbon.automation.test.utils.http.client.HttpRequestUtil;
+import org.wso2.carbon.automation.test.utils.http.client.HttpResponse;
 import org.wso2.carbon.integration.common.utils.LoginLogoutClient;
-import org.xml.sax.SAXException;
 
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.xpath.XPathExpressionException;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.util.Iterator;
 import java.util.regex.Matcher;
+
 
 /**
  * Base class for all API Manager integration tests
@@ -47,22 +57,23 @@ import java.util.regex.Matcher;
 public class APIMIntegrationBaseTest {
 
     private static final Log log = LogFactory.getLog(APIMIntegrationBaseTest.class);
-
-    protected AutomationContext storeContext, publisherContext, gatewayContext;
-
+    protected AutomationContext storeContext, publisherContext, keyManagerContext, gatewayContextMgt, gatewayContextWrk, backEndServer;
     protected OMElement synapseConfiguration;
-
     protected APIMTestCaseUtils apimTestCaseUtils;
-
     protected TestUserMode userMode;
-    protected APIMURLBean storeUrls, publisherUrls, gatewayUrls;
+    protected String executionMode;
+    protected APIMURLBean storeUrls, publisherUrls, gatewayUrlsMgt, gatewayUrlsWrk, keyMangerUrl, backEndServerUrl;
+    protected User user;
+    private static final long WAIT_TIME = 90 * 1000;
+
 
     /**
-     * init basic class
+     * This method will initialize test environment
+     * based on user mode and configuration given at automation.xml
      *
-     * @throws Exception
+     * @throws APIManagerIntegrationTestException - if test configuration init fails
      */
-    protected void init() throws Exception {
+    protected void init() throws APIManagerIntegrationTestException {
         userMode = TestUserMode.SUPER_TENANT_ADMIN;
         init(userMode);
     }
@@ -70,165 +81,420 @@ public class APIMIntegrationBaseTest {
     /**
      * init the object with user mode , create context objects and get session cookies
      *
-     * @param userMode
-     * @throws Exception
+     * @param userMode - user mode to run the tests
+     * @throws APIManagerIntegrationTestException - if test configuration init fails
      */
-
-    protected void init(TestUserMode userMode) throws Exception {
+    protected void init(TestUserMode userMode) throws APIManagerIntegrationTestException {
 
         apimTestCaseUtils = new APIMTestCaseUtils();
 
-        storeContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
-                APIMIntegrationConstants.AM_STORE_INSTANCE, userMode);
-        storeUrls = new APIMURLBean(storeContext.getContextUrls());
-
-        publisherContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
-                APIMIntegrationConstants.AM_PUBLISHER_INSTANCE, userMode);
-        publisherUrls = new APIMURLBean(publisherContext.getContextUrls());
-
-        gatewayContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
-                APIMIntegrationConstants.AM_GATEWAY_INSTANCE, userMode);
-        gatewayUrls = new APIMURLBean(gatewayContext.getContextUrls());
-
-    }
-
-    protected void init(String domainKey, String userKey, String instance) throws Exception {
-        /*apimContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
-                APIMIntegrationConstants.AM_1ST_INSTANCE,
-                domainKey, userKey);
-        loginLogoutClient = new LoginLogoutClient(apimContext);
-        backendURL = apimContext.getContextUrls().getBackEndUrl();
-        webAppURL = apimContext.getContextUrls().getWebAppURL();*/
-    }
-
-    /**
-     * proxy service URL of deployed server non secure
-     *
-     * @param proxyServiceName
-     * @return
-     */
-    protected String getProxyServiceURLHttp(String proxyServiceName) {
         try {
-            return gatewayContext.getContextUrls().getServiceUrl() + "/" + proxyServiceName + "/";
+            //create store server instance based on configuration given at automation.xml
+            storeContext =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_STORE_INSTANCE, userMode);
+            storeUrls = new APIMURLBean(storeContext.getContextUrls());
+
+            //create publisher server instance based on configuration given at automation.xml
+            publisherContext =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_PUBLISHER_INSTANCE, userMode);
+            publisherUrls = new APIMURLBean(publisherContext.getContextUrls());
+
+            //create gateway server instance based on configuration given at automation.xml
+            gatewayContextMgt =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_GATEWAY_MGT_INSTANCE, userMode);
+            gatewayUrlsMgt = new APIMURLBean(gatewayContextMgt.getContextUrls());
+
+            gatewayContextWrk =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_GATEWAY_WRK_INSTANCE, userMode);
+            gatewayUrlsWrk = new APIMURLBean(gatewayContextWrk.getContextUrls());
+
+            keyManagerContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                                      APIMIntegrationConstants.AM_KEY_MANAGER_INSTANCE, userMode);
+            keyMangerUrl = new APIMURLBean(keyManagerContext.getContextUrls());
+
+            backEndServer = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                                  APIMIntegrationConstants.BACKEND_SERVER_INSTANCE, userMode);
+            backEndServerUrl = new APIMURLBean(backEndServer.getContextUrls());
+
+            executionMode = gatewayContextMgt.getConfigurationValue(ContextXpathConstants.EXECUTION_ENVIRONMENT);
+
+            user = storeContext.getContextTenant().getContextUser();
+
         } catch (XPathExpressionException e) {
-            log.error("URL retrieve error", e);
+            log.error("APIM test environment initialization failed", e);
+            throw new APIManagerIntegrationTestException("APIM test environment initialization failed", e);
         }
 
-        return null;
-    }
-
-
-    /**
-     * @param relativeFilePath
-     * @throws Exception
-     */
-    protected void loadSynapseConfigurationFromClasspath(String relativeFilePath, AutomationContext automationContext,
-                                                         String sessionCookie) throws Exception {
-        relativeFilePath = relativeFilePath.replaceAll("[\\\\/]", Matcher
-                .quoteReplacement(File.separator));
-
-        OMElement synapseConfig = apimTestCaseUtils.loadResource(relativeFilePath);
-        updateSynapseConfiguration(synapseConfig, automationContext, sessionCookie);
-
     }
 
     /**
-     * login and return session cookie
+     * init the object with tenant domain, user key and instance of store,publisher and gateway
+     * create context objects and construct URL bean
      *
-     * @param automationContext - created automation context
-     * @return - session cookie
-     * @throws IOException
-     * @throws XPathExpressionException
-     * @throws URISyntaxException
-     * @throws SAXException
-     * @throws XMLStreamException
-     * @throws LoginAuthenticationExceptionException
-     *
+     * @param domainKey - tenant domain key
+     * @param userKey   - tenant user key
+     * @throws APIManagerIntegrationTestException - if test configuration init fails
      */
+    protected void init(String domainKey, String userKey)
+            throws APIManagerIntegrationTestException {
 
+        try {
+            //create store server instance based configuration given at automation.xml
+            storeContext =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_STORE_INSTANCE, domainKey, userKey);
+            storeUrls = new APIMURLBean(storeContext.getContextUrls());
+
+            //create publisher server instance
+            publisherContext =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_PUBLISHER_INSTANCE, domainKey, userKey);
+            publisherUrls = new APIMURLBean(publisherContext.getContextUrls());
+
+            //create gateway server instance
+            gatewayContextMgt =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_GATEWAY_MGT_INSTANCE, domainKey, userKey);
+            gatewayUrlsMgt = new APIMURLBean(gatewayContextMgt.getContextUrls());
+
+            gatewayContextWrk =
+                    new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                          APIMIntegrationConstants.AM_GATEWAY_WRK_INSTANCE, domainKey, userKey);
+            gatewayUrlsWrk = new APIMURLBean(gatewayContextWrk.getContextUrls());
+
+            keyManagerContext = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                                      APIMIntegrationConstants.AM_KEY_MANAGER_INSTANCE, domainKey, userKey);
+            keyMangerUrl = new APIMURLBean(keyManagerContext.getContextUrls());
+
+            backEndServer = new AutomationContext(APIMIntegrationConstants.AM_PRODUCT_GROUP_NAME,
+                                                  APIMIntegrationConstants.BACKEND_SERVER_INSTANCE, domainKey, userKey);
+            backEndServerUrl = new APIMURLBean(backEndServer.getContextUrls());
+
+            user = storeContext.getContextTenant().getContextUser();
+
+        } catch (XPathExpressionException e) {
+            log.error("Init failed", e);
+            throw new APIManagerIntegrationTestException("APIM test environment initialization failed", e);
+        }
+
+    }
+
+    /**
+     * @param relativeFilePath - file path to load config
+     * @throws APIManagerIntegrationTestException - Throws if load synapse configuration from file path
+     *                                            fails
+     */
+    protected void loadSynapseConfigurationFromClasspath(String relativeFilePath,
+                                                         AutomationContext automationContext,
+                                                         String sessionCookie)
+            throws APIManagerIntegrationTestException {
+
+        relativeFilePath = relativeFilePath.replaceAll("[\\\\/]", Matcher.quoteReplacement(File.separator));
+        OMElement synapseConfig;
+
+        try {
+            synapseConfig = APIMTestCaseUtils.loadResource(relativeFilePath);
+            updateSynapseConfiguration(synapseConfig, automationContext, sessionCookie);
+
+        } catch (FileNotFoundException e) {
+            log.error("synapse config loading issue", e);
+            throw new APIManagerIntegrationTestException("synapse config loading issue", e);
+        } catch (XMLStreamException e) {
+            log.error("synapse config loading issue", e);
+            throw new APIManagerIntegrationTestException("synapse config loading issue", e);
+        }
+    }
+
+    /**
+     * @param automationContext - automation context instance of given server
+     * @return - created session cookie variable
+     * @throws APIManagerIntegrationTestException - Throws if creating session cookie fails
+     */
     protected String createSession(AutomationContext automationContext)
-            throws IOException, XPathExpressionException, URISyntaxException, SAXException,
-            XMLStreamException, LoginAuthenticationExceptionException {
-        LoginLogoutClient loginLogoutClient = new LoginLogoutClient(automationContext);
-        return loginLogoutClient.login();
+            throws APIManagerIntegrationTestException {
+        LoginLogoutClient loginLogoutClient;
+        try {
+            loginLogoutClient = new LoginLogoutClient(automationContext);
+            return loginLogoutClient.login();
+        } catch (Exception e) {
+            log.error("session creation error", e);
+            throw new APIManagerIntegrationTestException("session creation error", e);
+        }
     }
 
-
     /**
-     * Get resources location for  test case
-     * @return
+     * Get test artifact resources location
+     *
+     * @return - absolute patch of test artifact directory
      */
     protected String getAMResourceLocation() {
-        return FrameworkPathUtil.getSystemResourceLocation() + "artifacts" +
-                File.separator + "AM";
+        return FrameworkPathUtil.getSystemResourceLocation() + "artifacts" + File.separator + "AM";
     }
 
-
     /**
-     * update API manager synapse configs
+     * update synapse config to server
      *
-     * @param synapseConfig
-     * @throws Exception
+     * @param synapseConfig     - config to upload
+     * @param automationContext - automation context of the server instance
+     * @param sessionCookie     -  logged in session cookie
+     * @throws APIManagerIntegrationTestException - If synapse config update fails
      */
-    protected void updateSynapseConfiguration(OMElement synapseConfig, AutomationContext automationContext, String sessionCookie)
-            throws Exception {
+    protected void updateSynapseConfiguration(OMElement synapseConfig,
+                                              AutomationContext automationContext,
+                                              String sessionCookie)
+            throws APIManagerIntegrationTestException {
 
         if (synapseConfiguration == null) {
             synapseConfiguration = synapseConfig;
         } else {
-            Iterator<OMElement> itr = synapseConfig.cloneOMElement().getChildElements();
+            Iterator<OMElement> itr = synapseConfig.cloneOMElement().getChildElements();  //ToDo
             while (itr.hasNext()) {
                 synapseConfiguration.addChild(itr.next());
             }
         }
-        apimTestCaseUtils.updateAPIMConfiguration(synapseConfig, automationContext.getContextUrls().getBackEndUrl(),
-                sessionCookie);
 
-        if (automationContext.getProductGroup().isClusterEnabled()) {
-            long deploymentDelay =
-                    Long.parseLong(automationContext.getConfigurationValue("//deploymentDelay"));
-            Thread.sleep(deploymentDelay);
-            Iterator<OMElement> proxies = synapseConfig.getChildrenWithLocalName("proxy");
-            while (proxies.hasNext()) {
-                String proxy = proxies.next().getAttributeValue(new QName("name"));
+        try {
 
-                Assert.assertTrue(isProxyWSDlExist(getProxyServiceURLHttp(proxy), deploymentDelay)
-                        , "Deployment Synchronizing failed in workers");
-                Assert.assertTrue(isProxyWSDlExist(getProxyServiceURLHttp(proxy), deploymentDelay)
-                        , "Deployment Synchronizing failed in workers");
-                Assert.assertTrue(isProxyWSDlExist(getProxyServiceURLHttp(proxy), deploymentDelay)
-                        , "Deployment Synchronizing failed in workers");
+            APIMTestCaseUtils.updateSynapseConfiguration(synapseConfig,
+                                                         automationContext.getContextUrls().getBackEndUrl(),
+                                                         sessionCookie);
+
+        } catch (Exception e) {
+            log.error("synapse config  upload error", e);
+            throw new APIManagerIntegrationTestException("synapse config  upload error", e);
+        }
+    }
+
+    protected String getStoreURLHttp() {
+        return storeUrls.getWebAppURLHttp();
+    }
+
+    protected String getStoreURLHttps() {
+        return storeUrls.getWebAppURLHttps();
+    }
+
+    protected String getPublisherURLHttp() {
+        return publisherUrls.getWebAppURLHttp();
+    }
+
+    protected String getPublisherURLHttps() {
+        return publisherUrls.getWebAppURLHttps();
+    }
+
+    protected String getGatewayMgtURLHttp() {
+        return gatewayUrlsMgt.getWebAppURLHttp();
+    }
+
+    protected String getGatewayMgtBackendURLHttps() {
+        return gatewayUrlsMgt.getWebAppURLHttp();
+    }
+
+    protected String getGatewayMgtURLHttps() {
+        return gatewayUrlsMgt.getWebAppURLHttps();
+    }
+
+    protected String getGatewayURLHttp() {
+        return gatewayUrlsWrk.getWebAppURLHttp();
+    }
+
+    protected String getGatewayURLNhttp() {
+        return gatewayUrlsWrk.getWebAppURLNhttp();
+    }
+
+    protected String getKeyManagerURLHttp() {
+        return keyMangerUrl.getWebAppURLHttp();
+    }
+
+    protected String getKeyManagerURLHttps() throws XPathExpressionException {
+        return keyManagerContext.getContextUrls().getBackEndUrl().replace("/services", "");
+    }
+
+    protected String getAPIInvocationURLHttp(String apiContext) throws XPathExpressionException {
+        return gatewayContextWrk.getContextUrls().getServiceUrl().replace("/services", "") + "/" + apiContext;
+    }
+
+    protected String getAPIInvocationURLHttp(String apiContext, String version)
+            throws XPathExpressionException {
+        return gatewayContextWrk.getContextUrls().getServiceUrl().replace("/services", "") + "/" + apiContext + "/" + version;
+    }
+
+    protected String getAPIInvocationURLHttps(String apiContext) throws XPathExpressionException {
+        return gatewayContextWrk.getContextUrls().getSecureServiceUrl().replace("/services", "") + "/" + apiContext;
+    }
+
+    protected String getBackendEndServiceEndPointHttp(String serviceName) {
+        return backEndServerUrl.getWebAppURLHttp() + serviceName;
+    }
+
+    protected String getBackendEndServiceEndPointHttps(String serviceName) {
+        return backEndServerUrl.getWebAppURLHttps() + serviceName;
+    }
+
+    /**
+     * Cleaning up the API manager by removing all APIs and applications other than default application
+     *
+     * @throws APIManagerIntegrationTestException - occurred when calling the apis
+     * @throws org.json.JSONException             - occurred when reading the json
+     */
+    protected void cleanUp() throws Exception {
+
+        APIStoreRestClient apiStore = new APIStoreRestClient(getStoreURLHttp());
+        apiStore.login(user.getUserName(), user.getPassword());
+        APIPublisherRestClient publisherRestClient = new APIPublisherRestClient(getPublisherURLHttp());
+        publisherRestClient.login(user.getUserName(), user.getPassword());
+        HttpResponse subscriptionDataResponse = apiStore.getAllSubscriptions();
+        verifyResponse(subscriptionDataResponse);
+        JSONObject jsonSubscription = new JSONObject(subscriptionDataResponse.getData());
+
+        if (!jsonSubscription.getBoolean(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_ERROR)) {
+            JSONObject jsonSubscriptionsObject = jsonSubscription.getJSONObject(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_SUBSCRIPTION);
+            JSONArray jsonApplicationsArray = jsonSubscriptionsObject.getJSONArray(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_APPLICATIONS);
+
+            //Remove API Subscriptions
+            for (int i = 0; i < jsonApplicationsArray.length(); i++) {
+                JSONObject appObject = jsonApplicationsArray.getJSONObject(i);
+                int id = appObject.getInt(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_ID);
+                JSONArray subscribedAPIJSONArray = appObject.getJSONArray(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_SUBSCRIPTION);
+                for (int j = 0; j < subscribedAPIJSONArray.length(); j++) {
+                    JSONObject subscribedAPI = subscribedAPIJSONArray.getJSONObject(j);
+                    verifyResponse(apiStore.removeAPISubscription(subscribedAPI.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_NAME)
+                            , subscribedAPI.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_VERSION),
+                                                                  subscribedAPI.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_PROVIDER), String.valueOf(id)));
+                }
+            }
+        }
+
+        //delete all application other than default application
+        String applicationData = apiStore.getAllApplications().getData();
+        JSONObject jsonApplicationData = new JSONObject(applicationData);
+        JSONArray applicationArray = jsonApplicationData.getJSONArray(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_APPLICATIONS);
+        for (int i = 0; i < applicationArray.length(); i++) {
+            JSONObject jsonApplication = applicationArray.getJSONObject(i);
+            if (!jsonApplication.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_NAME).equals(APIMIntegrationConstants.OAUTH_DEFAULT_APPLICATION_NAME)) {
+                verifyResponse(apiStore.removeApplication(jsonApplication.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_NAME)));
+            }
+        }
+
+        String apiData = apiStore.getAPI().getData();
+        JSONObject jsonAPIData = new JSONObject(apiData);
+        JSONArray jsonAPIArray = jsonAPIData.getJSONArray(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_APIS);
+
+        //delete all APIs
+        for (int i = 0; i < jsonAPIArray.length(); i++) {
+            JSONObject api = jsonAPIArray.getJSONObject(i);
+//            verifyResponse(publisherRestClient.deleteAPI(api.getString("name"), api.getString("version"), user.getUserName()));
+            publisherRestClient.deleteAPI(api.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_NAME)
+                    , api.getString(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_API_VERSION), user.getUserName());
+        }
+    }
+
+    protected void verifyResponse(HttpResponse httpResponse) throws JSONException {
+        Assert.assertNotNull(httpResponse, "Response object is null");
+        log.info("Response Code : " + httpResponse.getResponseCode());
+        log.info("Response Message : " + httpResponse.getData());
+        Assert.assertEquals(httpResponse.getResponseCode(), HttpStatus.SC_OK, "Response code is not as expected");
+        JSONObject responseData = new JSONObject(httpResponse.getData());
+        Assert.assertFalse(responseData.getBoolean(APIMIntegrationConstants.API_RESPONSE_ELEMENT_NAME_ERROR), "Error message received " + httpResponse.getData());
+
+    }
+
+    /**
+     * This method can be used to wait for API deployment sync in distributed and clustered environment
+     * APIStatusMonitor will be invoked to get API related data and then verify that data matches with
+     * expected response provided.
+     *
+     * @param apiProvider      - Provider of the API
+     * @param apiName          - API name
+     * @param apiVersion       - API version
+     * @param expectedResponse - Expected response
+     * @throws XPathExpressionException - Throws if something goes wrong
+     */
+    protected void waitForAPIDeploymentSync(String apiProvider, String apiName, String apiVersion,
+                                            String expectedResponse)
+            throws XPathExpressionException {
+
+        long currentTime = System.currentTimeMillis();
+        long waitTime = currentTime + WAIT_TIME;
+
+        if (executionMode.equalsIgnoreCase(String.valueOf(ExecutionEnvironment.PLATFORM))) {
+
+            while (waitTime > System.currentTimeMillis()) {
+                HttpResponse response = null;
+                try {
+                    response = HttpRequestUtil.sendGetRequest(getGatewayURLHttp() +
+                                                              "APIStatusMonitor/api_status/api-data/" +
+                                                              apiProvider + "--" + apiName +
+                                                              ":v" + apiVersion, null);
+                } catch (IOException ignored) {
+                    log.warn("WebAPP:" + " APIStatusMonitor not yet deployed or" + " API :" + apiName + " not yet deployed " + " with provider: " + apiProvider);
+                }
+
+                log.info("WAIT for availability of API :" + apiName + " with version: " + apiVersion + " with provider: " + apiProvider +
+                         " with expected response : " + expectedResponse);
+
+                if (response != null) {
+                    if (response.getData().contains(expectedResponse)) {
+                        log.info("API :" + apiName + " with version: " + apiVersion +
+                                 " with expected response " + expectedResponse + " found");
+                        break;
+                    } else {
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException ignored) {
+
+                        }
+                    }
+                }
             }
         }
     }
 
     /**
-     * isProxyWSDlExist
+     * This method can be used to wait for API Un-deployment sync in distributed and clustered environment
+     * APIStatusMonitor will be invoked to get API related data and then verify that data matches with
+     * expected response provided.
      *
-     * @param serviceUrl
-     * @param synchronizingDelay
-     * @return
-     * @throws Exception
+     * @param apiProvider      - Provider of the API
+     * @param apiName          - API name
+     * @param apiVersion       - API version
+     * @param expectedResponse - Expected response
+     * @throws XPathExpressionException - Throws if something goes wrong
      */
-    private boolean isProxyWSDlExist(String serviceUrl, long synchronizingDelay)
-            throws Exception {
-        return new ServiceDeploymentUtil().isServiceWSDlExist(serviceUrl, synchronizingDelay);
+    protected void waitForAPIUnDeploymentSync(String apiProvider, String apiName, String apiVersion,
+                                              String expectedResponse)
+            throws IOException, XPathExpressionException {
 
+        long currentTime = System.currentTimeMillis();
+        long waitTime = currentTime + WAIT_TIME;
+
+        if (executionMode.equalsIgnoreCase(String.valueOf(ExecutionEnvironment.PLATFORM))) {
+
+            while (waitTime > System.currentTimeMillis()) {
+                HttpResponse response = HttpRequestUtil.sendGetRequest(getGatewayURLHttp() +
+                                                                       "APIStatusMonitor/api_status/api-data/" +
+                                                                       apiProvider + "--" + apiName +
+                                                                       ":v" + apiVersion, null);
+
+                log.info("WAIT for meta data sync of API :" + apiName + " with version: " + apiVersion + " with provider: " + apiProvider +
+                         " without entry : " + expectedResponse);
+
+                if (!response.getData().contains(expectedResponse)) {
+                    log.info("API :" + apiName + " with version: " + apiVersion +
+                             " with expected response " + expectedResponse + " not found");
+                    break;
+                } else {
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ignored) {
+
+                    }
+                }
+            }
+        }
     }
-
-
-
-
-    /**
-     * clean up deployed artifacts and other services
-     *
-     * @throws Exception
-     */
-
-    protected void cleanup() throws Exception {
-
-    }
-
-
 }
 

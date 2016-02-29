@@ -28,12 +28,15 @@ public class APILifeCycleStateRequest extends AbstractRequest {
     private String provider;
     private String version = "1.0.0";
     private String publishToGateway = "true";
+    private String deprecateOldVersions = "";
+    private String requireResubscription = "";
 
     public APILifeCycleStateRequest(String apiName, String provider, APILifeCycleState status) {
         this.name = apiName;
         this.status = status.getState();
         this.provider = provider;
     }
+
     @Override
     public void setAction() {
         setAction("updateStatus");
@@ -41,12 +44,14 @@ public class APILifeCycleStateRequest extends AbstractRequest {
 
     @Override
     public void init() {
-        addParameter("name",name);
+        addParameter("name", name);
         addParameter("status", status);
         addParameter("provider", provider);
-
         addParameter("version", version);
         addParameter("publishToGateway", publishToGateway);
+        addParameter("deprecateOldVersions", deprecateOldVersions);
+        addParameter("requireResubscription", requireResubscription);
+
     }
 
     public String getName() {
@@ -54,7 +59,7 @@ public class APILifeCycleStateRequest extends AbstractRequest {
     }
 
     public String getState() {
-        return status;
+        return  status;
     }
 
     public void setState(APILifeCycleState status) {
@@ -73,11 +78,28 @@ public class APILifeCycleStateRequest extends AbstractRequest {
         return provider;
     }
 
-     public boolean getPublishToGateway() {
+    public boolean getPublishToGateway() {
         return Boolean.valueOf(publishToGateway);
     }
 
     public void setPublishToGateway(boolean publishToGateway) {
         this.publishToGateway = String.valueOf(publishToGateway);
+    }
+
+    public String getDeprecateOldVersions() {
+        return deprecateOldVersions;
+    }
+
+    public void setDeprecateOldVersions(String deprecateOldVersions) {
+        this.deprecateOldVersions = deprecateOldVersions;
+    }
+
+
+    public String getRequireResubscription() {
+        return requireResubscription;
+    }
+
+    public void setRequireResubscription(String requireResubscription) {
+        this.requireResubscription = requireResubscription;
     }
 }

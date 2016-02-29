@@ -1,5 +1,5 @@
 /*
-*Copyright (c) 2005-2010, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+*Copyright (c) 2015, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
 *
 *WSO2 Inc. licenses this file to you under the Apache License,
 *Version 2.0 (the "License"); you may not use this file except
@@ -18,28 +18,28 @@
 
 package org.wso2.am.integration.test.utils.bean;
 
-/**
- * action=addAPISubscription&name=apiName&version=1.0.0&provider=provider&tier=Gold&applicationName=DefaultApplication
- */
+import org.wso2.am.integration.test.utils.base.APIMIntegrationConstants;
 
 /**
  * Basic request for subscribe to API
+ * action=addAPISubscription&name=apiName&version=1.0.0&provider=provider&tier=Gold&applicationName=DefaultApplication
+ *
  */
-
 public class SubscriptionRequest extends AbstractRequest {
 
     private String name;
     private String provider;
     private String version = "1.0.0";
     private String applicationName = "DefaultApplication";
-    private String tier = "Gold";
+    private String tier = APIMIntegrationConstants.API_TIER.GOLD;
+    private int applicationId;
 
     /**
      * Constructor using default values
-     * @param apiName
-     * @param provider
+     *
+     * @param apiName  - Name of the API
+     * @param provider - Provider of the API
      */
-
     public SubscriptionRequest(String apiName, String provider) {
         this.name = apiName;
         this.provider = provider;
@@ -47,19 +47,40 @@ public class SubscriptionRequest extends AbstractRequest {
 
     /**
      * constructor with more configurable params
-     * @param apiName
-     * @param apiVersion
-     * @param provider
-     * @param appName
-     * @param tier
+     *
+     * @param apiName    - Name of the API
+     * @param apiVersion - Version of the API
+     * @param provider   - API provider
+     * @param appName    - Application name
+     * @param tier       - Tire type
      */
-
-    public SubscriptionRequest(String apiName, String apiVersion, String provider, String appName, String tier){
+    public SubscriptionRequest(String apiName, String apiVersion, String provider,
+                               String appName, String tier) {
         this.name = apiName;
         this.version = apiVersion;
         this.provider = provider;
         this.applicationName = appName;
         this.tier = tier;
+    }
+
+    /**
+     * constructor with application Id
+     * @param apiName- Name of the API
+     * @param apiVersion - Api version
+     * @param provider - Api Provider
+     * @param  applicationId-  Application id
+     * @param  tier - Tier of the application
+     *
+     */
+    public SubscriptionRequest(String apiName,String apiVersion,String provider,
+                               int applicationId, String tier){
+
+        this.name=apiName;
+        this.version=apiVersion;
+        this.provider=provider;
+        this.applicationId=applicationId;
+        this.tier=tier;
+
     }
 
     @Override

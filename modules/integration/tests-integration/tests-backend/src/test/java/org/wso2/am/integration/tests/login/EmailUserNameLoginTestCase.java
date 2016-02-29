@@ -25,9 +25,12 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import org.wso2.am.admin.clients.client.utils.AuthenticateStub;
 import org.wso2.am.admin.clients.rest.api.WorkFlowAdminRestClient;
+import org.wso2.am.integration.test.utils.APIManagerIntegrationTestException;
 import org.wso2.am.integration.test.utils.base.APIMIntegrationBaseTest;
 import org.wso2.am.integration.test.utils.clients.APIPublisherRestClient;
 import org.wso2.am.integration.test.utils.clients.APIStoreRestClient;
+import org.wso2.carbon.automation.engine.annotations.ExecutionEnvironment;
+import org.wso2.carbon.automation.engine.annotations.SetEnvironment;
 import org.wso2.carbon.automation.test.utils.http.client.HttpResponse;
 import org.wso2.carbon.integration.common.utils.mgt.ServerConfigurationManager;
 import org.wso2.carbon.tenant.mgt.stub.TenantMgtAdminServiceExceptionException;
@@ -49,20 +52,22 @@ import static org.testng.Assert.assertEquals;
  * store and admin-dashboard. modified api manager configurations can be found in
  * configFiles/emailusernametest location
  */
+@SetEnvironment(executionEnvironments = {ExecutionEnvironment.STANDALONE})
 public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
 
     private APIPublisherRestClient apiPublisher;
     private APIStoreRestClient apiStore;
     private WorkFlowAdminRestClient workflowAdmin;
     private static final Log log = LogFactory.getLog(EmailUserNameLoginTestCase.class);
+    private ServerConfigurationManager serverConfigurationManager ;
 
-    @Override
+
     @BeforeClass(alwaysRun = true)
-    public void init() throws Exception {
+    public void setEnvironment() throws Exception {
         super.init();
-        String publisherURLHttp = publisherUrls.getWebAppURLHttp();
-        String storeURLHttp = storeUrls.getWebAppURLHttp();
-        String workflowAdminURLHTTP = storeUrls.getWebAppURLHttp();
+        String publisherURLHttp = getPublisherURLHttp();
+        String storeURLHttp = getStoreURLHttp();
+        String workflowAdminURLHTTP = getStoreURLHttp();
 
         String apiManagerXml =
                 getAMResourceLocation() + File.separator + "configFiles" + File.separator + "emailusernametest" +
@@ -76,10 +81,7 @@ public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
                 getAMResourceLocation() + File.separator + "configFiles" + File.separator + "emailusernametest" +
                         File.separator + "carbon.xml";
 
-        ServerConfigurationManager serverConfigurationManager = new ServerConfigurationManager(gatewayContext);
-        serverConfigurationManager.applyConfigurationWithoutRestart(new File(apiManagerXml));
-        serverConfigurationManager.applyConfigurationWithoutRestart(new File(userMgtXml));
-        serverConfigurationManager.applyConfiguration(new File(carbonXml));
+        configureServer(apiManagerXml, userMgtXml, carbonXml);
 
         apiPublisher = new APIPublisherRestClient(publisherURLHttp);
         apiStore = new APIStoreRestClient(storeURLHttp);
@@ -90,13 +92,13 @@ public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
     @Test(groups = {"wso2.am"}, description = "Email username login test case")
     public void LoginWithEmailUserNameTestCase() throws Exception {
 
-        String userNameWithEmail = gatewayContext.getContextTenant().getTenantUser("userKey1").getUserName() + "@wso2.com";
-        String password = gatewayContext.getContextTenant().getTenantUser("userKey1").getPassword();
-        String domainName = "tenant.com";
+        String userNameWithEmail = "emailuser@email.com";
+        String password = "email123";
+        String domainName = "emailuserdomain.com";
         String fullUserName = userNameWithEmail + "@" + domainName;
         boolean isSuccessful =
                 createTenantWithEmailUserName(userNameWithEmail, password,
-                        domainName, gatewayContext.getContextUrls().getBackEndUrl());
+                        domainName, publisherContext.getContextUrls().getBackEndUrl());
         assertEquals(isSuccessful, true);
 
         HttpResponse login;
@@ -133,8 +135,8 @@ public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
         TenantMgtAdminServiceStub tenantMgtAdminServiceStub =
                 new TenantMgtAdminServiceStub(
                         endPoint);
-        AuthenticateStub.authenticateStub(gatewayContext.getSuperTenant().getContextUser().getUserName(),
-                gatewayContext.getSuperTenant().getContextUser().getUserName(), tenantMgtAdminServiceStub);
+        AuthenticateStub.authenticateStub(publisherContext.getSuperTenant().getContextUser().getUserName(),
+                publisherContext.getSuperTenant().getContextUser().getUserName(), tenantMgtAdminServiceStub);
 
         Date date = new Date();
         Calendar calendar = new GregorianCalendar();
@@ -147,9 +149,8 @@ public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
         tenantInfoBean.setAdmin(userNameWithEmail);
         tenantInfoBean.setTenantDomain(domainName);
         tenantInfoBean.setCreatedDate(calendar);
-        tenantInfoBean.setFirstname(gatewayContext.getContextTenant().getContextUser().getUserName());
-        tenantInfoBean.setLastname(gatewayContext.getContextTenant().getContextUser().getUserName()
-                + "wso2automation");
+        tenantInfoBean.setFirstname("emailuser first name");
+        tenantInfoBean.setLastname("email user last name");
         tenantInfoBean.setSuccessKey("true");
         tenantInfoBean.setUsagePlan("demo");
 
@@ -176,7 +177,19 @@ public class EmailUserNameLoginTestCase extends APIMIntegrationBaseTest {
 
     @AfterClass(alwaysRun = true)
     public void destroy() throws Exception {
-        super.cleanup();
+        serverConfigurationManager.restoreToLastConfiguration();
+        super.cleanUp();
+    }
+
+    private void configureServer(String apiManagerXml, String userMgtXml, String carbonXml) throws Exception {
+        try {
+            serverConfigurationManager = new ServerConfigurationManager(publisherContext);
+            serverConfigurationManager.applyConfigurationWithoutRestart(new File(apiManagerXml));
+            serverConfigurationManager.applyConfigurationWithoutRestart(new File(userMgtXml));
+            serverConfigurationManager.applyConfiguration(new File(carbonXml));
+        }catch (Exception e){
+            throw new APIManagerIntegrationTestException("Error while changing server configuration", e);
+        }
     }
 
 }

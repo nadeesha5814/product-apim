@@ -45,7 +45,7 @@
                     <arg expression="$ctx:ERROR_MESSAGE"/>
                 </args>
             </payloadFactory>
-            <filter source="$axis2:HTTP_METHOD" regex="^(?!.*(POST|PUT)).*$">
+            <filter source="$axis2:HTTP_METHOD" regex="^(?!.*(POST|PUT|PATCH)).*$">
                 <property name="messageType" value="application/xml" scope="axis2"/>
             </filter>
         </else>
@@ -67,5 +67,6 @@
     <property name="Host" scope="transport" action="remove"/>
     <property name="Accept" scope="transport" action="remove"/>
     <property name="X-JWT-Assertion" scope="transport" action="remove"/>
+    <sequence key="_cors_request_handler_"/>
     <send/>
 </sequence>
